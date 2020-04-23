@@ -1,0 +1,25 @@
+{
+  "name": "@space48/json-pipe",
+  "version": "0.1.0",
+  "description": "A tiny library for creating JSON pipeline CLI programs",
+  "author": "Josh Di Fabio <joshdifabio@gmail.com>",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">= 10.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Space48/json-pipe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Space48/json-pipe/issues"
+  },
+  "homepage": "https://github.com/Space48/json-pipe#readme",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
+  },
+  "devDependencies": {
+    "@types/node": "^12.12.37",
+    "typescript": "^3.8.3"
+  }
+}
