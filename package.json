@@ -3,7 +3,7 @@
   "version": "0.1.4",
   "description": "A tiny library for creating JSON pipeline CLI programs",
   "main": "./lib/index.js",
-  "types": "./lib/index.d.ts",
+  "files": ["lib"],
   "scripts": {
     "build": "tsc",
     "clean": "rimraf lib",
