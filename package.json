@@ -2,8 +2,13 @@
   "name": "@space48/json-pipe",
   "version": "0.1.0",
   "description": "A tiny library for creating JSON pipeline CLI programs",
-  "author": "Josh Di Fabio <joshdifabio@gmail.com>",
-  "license": "UNLICENSED",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -f index.js && rm -f index.d.ts",
+    "prepare": "npm run clean && npm run build -- --build tsconfig.json"
+  },
   "engines": {
     "node": ">= 10.3.0"
   },
@@ -11,6 +16,8 @@
     "type": "git",
     "url": "git+https://github.com/Space48/json-pipe.git"
   },
+  "author": "Josh Di Fabio <joshdifabio@gmail.com>",
+  "license": "UNLICENSED",
   "bugs": {
     "url": "https://github.com/Space48/json-pipe/issues"
   },
