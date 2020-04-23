@@ -2,12 +2,12 @@
   "name": "@space48/json-pipe",
   "version": "0.1.1",
   "description": "A tiny library for creating JSON pipeline CLI programs",
-  "main": "./index.js",
-  "types": "./index.d.ts",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "clean": "rm -f index.js && rm -f index.d.ts",
-    "prepare": "npm run clean && npm run build -- --build tsconfig.json"
+    "clean": "rimraf lib",
+    "prepare": "npm run clean && npm run build -- --build tsconfig.publish.json"
   },
   "engines": {
     "node": ">= 10.3.0"
@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@types/node": "^12.12.37",
+    "rimraf": "^3.0.2",
     "typescript": "^3.8.3"
   }
 }
