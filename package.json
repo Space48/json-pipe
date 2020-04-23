@@ -1,9 +1,11 @@
 {
   "name": "@space48/json-pipe",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A tiny library for creating JSON pipeline CLI programs",
   "main": "./lib/index.js",
-  "files": ["lib"],
+  "files": [
+    "lib"
+  ],
   "scripts": {
     "build": "tsc",
     "clean": "rimraf lib",
