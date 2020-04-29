@@ -46,13 +46,18 @@ export async function sink<I, O = any>(...args: SinkArgs<I, O>) {
 }
 
 const gracefulSink = <I, R>(fn: Sink<I, R>) => async (input: I): Promise<string> => {
+    const startTime = new Date();
+    const common = {input, timestamp: startTime.toISOString()};
     try {
-        return JSON.stringify({success: true, input, result: await fn(input)});
+        const result = await fn(input);
+        const duration = Date.now() - startTime.getTime();
+        return JSON.stringify({success: true, ...common, duration, result});
     } catch (error) {
+        const duration = Date.now() - startTime.getTime();
         try {
-            return JSON.stringify({success: false, input, error});
+            return JSON.stringify({success: false, ...common, duration, error});
         } catch {
-            return JSON.stringify({success: false, input, error: error.message});
+            return JSON.stringify({success: false, ...common, duration, error: error.message});
         }
     }
 }
