@@ -1,13 +1,14 @@
 {
   "compilerOptions": {
     "module": "commonjs",
+    "esModuleInterop": true,
     "strict": true,
     "outDir": "lib",
     "removeComments": true,
-    "target": "es2017",
+    "target": "es2015",
     "sourceMap": true,
-    "lib": ["ES2017"],
+    "lib": ["ES2015"],
     "declaration": true
   },
-  "include": ["index.ts"]
+  "include": ["*.ts"]
 }

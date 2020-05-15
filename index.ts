@@ -1,176 +1,360 @@
-import * as readline from 'readline';
+import * as stream from "stream";
+import * as readline from "readline";
+import multipipe from "multipipe";
 
-type Stream<T> = Iterable<T> | Promise<Iterable<T>> | AsyncIterable<T>;
+// reads JSON lines from stdin, transforms them via `transform`, and writes the output to stdout as JSON lines
+export function jsonTransform(transform: Transform): Promise<void> {
+    return writeToStdout(multipipe(
+        // todo: stream.Readable.from was added in Node 10 -- consider removing for Node 8 compat
+        stream.Readable.from(readline.createInterface({input: process.stdin})),
+        map(JSON.parse),
+        transform,
+        map(element => `${JSON.stringify(element)}\n`),
+    ));
+}
 
-export async function source<T>(items: Stream<T>): Promise<void> {
-    for await (const item of await items) {
-        if (!await writeData(item)) {
-            return;
-        }
+// iterates `source` and writes the output to stdout as JSON lines
+export function jsonSource(source: Iterable<any>|AsyncIterable<any>): Promise<void> {
+    return writeToStdout(multipipe(
+        // todo: stream.Readable.from was added in Node 10 -- consider removing for Node 8 compat
+        stream.Readable.from(source),
+        map(element => `${JSON.stringify(element)}\n`),
+    ));
+}
+
+export function compose<T>(): Transform<T, T>;
+export function compose<T1, T2>(t1: Transform<T1, T2>): Transform<T1, T2>;
+export function compose<T1, T2, T3>(t1: Transform<T1, T2>, t2: Transform<T2, T3>): Transform<T1, T3>;
+export function compose<T1, T2, T3, T4>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>): Transform<T1, T4>;
+export function compose<T1, T2, T3, T4, T5>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>): Transform<T1, T5>;
+export function compose<T1, T2, T3, T4, T5, T6>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>): Transform<T1, T6>;
+export function compose<T1, T2, T3, T4, T5, T6, T7>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>): Transform<T1, T7>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>): Transform<T1, T8>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>): Transform<T1, T9>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>): Transform<T1, T10>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>, t10: Transform<T10, T11>): Transform<T1, T11>;
+export function compose(t1: Transform, t2: Transform, ...rest: Transform[]): Transform;
+export function compose(...transforms: any[]): Transform {
+    switch (transforms.length) {
+        case 0:
+            return new stream.PassThrough();
+        case 1:
+            return transforms[0];
+        default:
+            return multipipe(...transforms);
     }
 }
 
-export type Transform<I, O> = (input: AsyncIterable<I>) => Stream<O>;
-export async function transform<I, O>(transform: Transform<I, O>) {
-    await runTransform(transform);
-}
-
-export type Sink<I, O> = ((input: I) => O) | ((input: I) => Promise<O>);
-export type SinkOptions = {
-    concurrency?: number,   // max number of concurrent executions of sink fn; defaults to 1
-};
-type SinkArgs<I, O> = [SinkOptions, Sink<I, O>] | [Sink<I, O>];
-export async function sink<I, O = any>(...args: SinkArgs<I, O>) {
-    const fn = args.length === 1 ? args[0] : args[1];
-    const processItem = gracefulSink(fn);
-    const {concurrency: concurrencyLimit=1} = args.length === 1 ? {} : args[0];
-    let numInFlight = 0;
-    let writeMore = true;
-    let proceed = () => {};
-    for await (const input of readData<I>()) {
-        if (numInFlight === concurrencyLimit) {
-            await new Promise(resolve => {proceed = resolve});
-        }
-        if (!writeMore) {
-            return;
-        }
-        numInFlight++;
-        processItem(input)
-            .then(writeData)
-            .then(_writeMore => {
-                writeMore = _writeMore;
-                numInFlight--;
-                proceed();
-            });
-    }
-}
-
-const gracefulSink = <I, R>(fn: Sink<I, R>) => async (input: I): Promise<string> => {
-    const startTime = new Date();
-    const common = {input, timestamp: startTime.toISOString()};
-    try {
-        const result = await fn(input);
-        const duration = Date.now() - startTime.getTime();
-        return JSON.stringify({success: true, ...common, duration, result});
-    } catch (error) {
-        const duration = Date.now() - startTime.getTime();
-        try {
-            return JSON.stringify({success: false, ...common, duration, error});
-        } catch {
-            return JSON.stringify({success: false, ...common, duration, error: error.message});
-        }
-    }
-}
-
-export type Mapper<I, O> = ((input: I) => O) | ((input: I) => Promise<O>);
-export async function map<I, O = any>(mapper: Mapper<I, O>) {
-    const transform: Transform<I, O> = async function* (input) {
-        for await (const inputItem of input) {
-            yield mapper(inputItem);
-        }
-    };
-    await runTransform(transform);
-}
-
-export async function concurrentMap<I, O = any>(concurrencyLimit: number, mapper: Mapper<I, O>) {
-    const transform: Transform<I, O> = async function* (input) {
-        const chunks = chunk(concurrencyLimit, input);
-        for await (const chunk of chunks) {
-            const results = await Promise.all(chunk.map(inputItem => mapper(inputItem)));
-            yield* results;
-        }
-    };
-    await runTransform(transform);
-}
-
-export type FlatMapper<I, O> = (input: I) => Stream<O>;
-export async function flatMap<I, O>(mapper: FlatMapper<I, O>) {
-    const transform: Transform<I, O> = async function* (input) {
-        for await (const inputItem of input) {
-            for await (const outputItem of await mapper(inputItem)) {
-                yield outputItem;
-            }
-        }
-    };
-    await runTransform(transform);
-}
-
-export async function* chunk<T>(size: number, items: Stream<T>): AsyncIterable<T[]> {
-    if (size < 1) {
-        throw new Error();
-    }
-    let currentChunk: T[] = [];
-    for await (const item of await items) {
-        currentChunk.push(item);
-        if (currentChunk.length === size) {
-            yield currentChunk;
-            currentChunk = [];
-        }
-    }
-    if (currentChunk.length > 0) {
-        yield currentChunk;
-    }
-}
-
-export async function collect<T>(items: Stream<T>): Promise<T[]> {
-    const result: T[] = [];
-    for await (const item of await items) {
-        result.push(item);
-    }
-    return result;
-}
-
-async function runTransform<I, O>(transform: Transform<I, O>) {
-    try {
-        for await (const outputItem of await transform(readData<I>())) {
-            if (!await writeData(outputItem)) {
-                return;
-            }
-        }
-    } catch (e) {
-        process.stderr.write((e.message || JSON.stringify(e)) + '\n');
-    }
-}
-
-let pipeClosed = false;
-process.stdout.on('error', (e: any) => pipeClosed = pipeClosed || e?.code === 'EPIPE');
-const writeData = async (data: any): Promise<boolean> => {
-    if (pipeClosed) {
-        return false;
-    }
-    const output = typeof data === 'string' ? data : JSON.stringify(data);
-    const writeMore = process.stdout.write(`${output}\n`);
-    if (writeMore) {
-        return true;
-    }
-    await new Promise<void>((resolve, reject) => {
-        const drainListener = () => {
-            process.stdout.removeListener('error', errorListener);
-            resolve()
-        };
-        process.stdout.once('drain', drainListener);
-
-        const errorListener = (e: any) => {
-            process.stdout.removeListener('drain', drainListener);
-            if (!pipeClosed) {
-                reject(e);
-            }
-        };
-        process.stdout.once('error', errorListener);
+export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
+    return transform(function (input, callback) {
+        callback(null, mapper(input));
     });
-    return !pipeClosed;
-};
+}
 
-async function* readData<T>(): AsyncGenerator<T> {
-    if (process.stdin.isTTY) {
-        return;
+type AsyncMapper<T, R> = (input: T) => Promise<R>;
+export function mapAsync<T, R>(mapper: AsyncMapper<T, R>): Transform<T, R>;
+export function mapAsync<T, R>(concurrency: number, mapper: AsyncMapper<T, R>): Transform<T, R>;
+export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, maybeMapper?: AsyncMapper<T, R>): Transform<T, R> {
+    const mapper = maybeMapper || mapperOrConcurrency as AsyncMapper<T, R>;
+    const concurrency = maybeMapper && mapperOrConcurrency as number || 1;
+    if (concurrency === 1) {
+        return transform(function (input, callback) {
+            try {
+                mapper(input).then(
+                    output => callback(null, output),
+                    callback,
+                );
+            } catch (e) {
+                callback(null, e);
+            }
+        });
+    } else {
+        let numInFlight = 0;
+        let fail: (error: Error) => void;
+        let push: (value: R) => void;
+        let currentCallback: TransformCallback<R>|null;
+        return transform({
+            init() {
+                fail = error => this.emit('error', error);
+                
+                push = value => {
+                    numInFlight--;
+                    if (currentCallback) {
+                        const cb = currentCallback;
+                        currentCallback = null;
+                        cb(null, value);
+                    } else {
+                        this.push(value);
+                    }
+                };
+            },
+
+            transform(input, callback) {
+                numInFlight++;
+                const pause = numInFlight === concurrency;
+                if (pause) {
+                    currentCallback = callback;
+                }
+                mapper(input).then(push, fail);
+                if (!pause) {
+                    callback();
+                }
+            },
+    
+            flush(callback) {
+                if (numInFlight === 0) {
+                    callback();
+                } else {
+                    push = value => {
+                        numInFlight--;
+                        if (numInFlight === 0) {
+                            callback(null, value);
+                        } else {
+                            this.push(value as R);
+                        }
+                    };
+                }
+            },
+        });
     }
-    const rl = readline.createInterface({input: process.stdin, crlfDelay: Infinity});
-    for await (const line of rl) {
-        const lineTrimmed = line.trim();
-        if (lineTrimmed.length === 0) {
-            continue;
+}
+
+export function reduce<T, U>(initialValue: U, callbackfn: (previousValue: U, currentValue: T) => U): Transform<T, U> {
+    let currentValue = initialValue;
+
+    return transform({
+        transform(element, callback) {
+            currentValue = callbackfn(currentValue, element);
+            callback();
+        },
+
+        flush(callback) {
+            callback(null, currentValue);
+        },
+    })
+}
+
+export function tap<T>(observer: (element: T) => void): Transform<T, T> {
+    return transform(function (element, callback) {
+        observer(element);
+        callback(null, element);
+    });
+}
+
+export function flatMap<T, R>(mapper: (input: T) => Iterable<R>): Transform<T, R> {
+    return compose(map(mapper), flatten());
+}
+
+export function flatten<T>(): Transform<Iterable<T>, T> {
+    return transform(function (elements, callback) {
+        for (const element of elements) {
+            this.push(element);
         }
-        yield JSON.parse(lineTrimmed);
+        callback();
+    });
+}
+
+export function filter<T>(predicate: (element: T) => any): Transform<T, T> {
+    return transform(function (element, callback) {
+        predicate(element) ? callback(null, element) : callback();
+    });
+}
+
+export function distinct<T>(): Transform<T, T>;
+export function distinct<T>(compare: (element1: T, element2: T) => boolean): Transform<T, T>;
+export function distinct<T>(compare: ((element1: T, element2: T) => boolean) = Object.is): Transform<T, T> {
+    let previousElement: T;
+    let firstEl = true;
+
+    return transform(function (element, callback) {
+        if (firstEl) {
+            firstEl = false;
+            previousElement = element;
+            callback(null, element);
+        } else if (compare(element, previousElement)) {
+            callback();
+        } else {
+            previousElement = element;
+            callback(null, element);
+        }
+    });
+}
+
+export function group<T, K>(getKeyFn: (element: T) => K): Transform<T, T[]> {
+    let currentKey: K|undefined = undefined;
+    let buffer: T[] = [];
+
+    return transform({
+        transform(element, callback) {
+            const key = getKeyFn(element);
+            if (key === currentKey) {
+                buffer.push(element);
+                callback();
+            } else {
+                const output = buffer.length && buffer;
+                currentKey = key;
+                buffer = [element];
+                output ? callback(null, output) : callback();
+            }
+        },
+
+        flush(callback) {
+            if (buffer.length) {
+                const output = buffer;
+                currentKey = undefined;
+                buffer = [];
+                callback(null, output);
+            } else {
+                callback();
+            }
+        },
+    });
+}
+
+export function batch<T>(size: number): Transform<T, T[]> {
+    let buffer: T[] = [];
+
+    return transform({
+        transform(element, callback) {
+            buffer.push(element);
+            if (buffer.length === size) {
+                const batch = buffer;
+                buffer = [];
+                callback(null, batch);
+            } else {
+                callback();
+            }
+        },
+
+        flush(callback) {
+            if (buffer.length) {
+                const batch = buffer;
+                buffer = [];
+                callback(null, batch);
+            } else {
+                callback();
+            }
+        },
+    });
+}
+
+export function take<T>(n: number): Transform<T, T> {
+    if (n < 0) {
+        throw new Error('take(n) was called with a negative number. n must be non-negative.');
     }
+
+    if (n === 0) {
+        return takeWhile(() => false);
+    }
+
+    const sources: stream.Readable[] = [];
+    let numConsumed = 0;
+
+    return transform({
+        init() {
+            this.once('pipe', source => sources.push(source));
+        },
+
+        transform(element, callback) {
+            if (++numConsumed === n) {
+                sources.forEach(source => source.unpipe(this));
+                this.end(element);
+                callback();
+            } else {
+                callback(null, element);
+            }
+        },
+    });
+}
+
+export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
+    const sources: stream.Readable[] = [];
+
+    return transform({
+        init() {
+            this.once('pipe', source => sources.push(source));
+        },
+
+        transform(element, callback) {
+            if (predicate(element)) {
+                callback(null, element);
+            } else {
+                sources.forEach(source => source.unpipe(this));
+                this.end();
+                callback();
+            }
+        },
+    });
+}
+
+type TransformFn<I, O> = (this: Transform<I, O>, element: I, callback: TransformCallback<O>) => void;
+type TransformCallback<T> = (error?: Error | null, element?: T) => void;
+interface TransformOptions<I, O> {
+    init?(this: Transform<I, O>): void;
+    transform: TransformFn<I, O>;
+    final?(this: Transform<I, O>, callback: (error?: Error | null) => void): void;
+    flush?(this: Transform<I, O>, callback: TransformCallback<O>): void;
+}
+interface Transform<I = any, O = any> extends stream.Duplex {
+    push(element: O): boolean;
+}
+export function transform<I, O>(options: TransformOptions<I, O>): Transform<I, O>;
+export function transform<I, O>(fn: TransformFn<I, O>): Transform<I, O>;
+export function transform<I, O>(fnOrOptions: TransformOptions<I, O>|TransformFn<I, O>): Transform<I, O> {
+    const options = typeof fnOrOptions === 'function' ? {transform: fnOrOptions} : fnOrOptions;
+    const {init, ...rest} = options;
+    const t = new stream.Transform({
+        ...rest,
+
+        objectMode: true,
+
+        transform(element, _, callback) {
+            options.transform.call(this, element, callback);
+        },
+    });
+    if (init) {
+        init.call(t);
+    }
+    return t;
+}
+
+// pipe source to stdout, only resolving once everything is flushed to stdout. Treats EPIPE as a success.
+function writeToStdout(source: stream.Readable): Promise<void> {
+    return new Promise((resolve, reject) => {
+        source.once('error', reject);
+
+        process.stdout.once('error', err => {
+            if (err?.code === 'EPIPE') {
+                source.destroy();
+                resolve();
+            } else {
+                source.destroy(err);
+            }
+        });
+
+        let numInFlight = 0;
+        let sourceEnded = false;
+        source.once('end', () => {
+            sourceEnded = true;
+            numInFlight === 0 && resolve();
+        });
+        const write = function (el: any, callback?: any) {
+            numInFlight++;
+            return process.stdout.write(el, e => {
+                if (e) {
+                    callback && callback(e);
+                } else {
+                    numInFlight--;
+                    callback && callback();
+                    sourceEnded && numInFlight === 0 && resolve();
+                }
+            });
+        };
+
+        source.pipe(new Proxy(process.stdout, {
+            get(stdout, prop) {
+                return prop === 'write' ? write : stdout[prop as keyof typeof stdout];
+            }
+        }));
+    });
 }
