@@ -72,7 +72,8 @@ export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, ma
         let numInFlight = 0;
         let fail: (error: Error) => void;
         let push: (value: R) => void;
-        let currentCallback: TransformCallback<R>|null;
+        let currentCallback: ((error: null, value: R) => void) | null = null;
+        let flushCallback: ((error: null, value: R) => void) | null = null;
         return transform({
             init() {
                 fail = error => this.emit('error', error);
@@ -81,7 +82,7 @@ export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, ma
                     numInFlight--;
                     if (currentCallback) {
                         const cb = currentCallback;
-                        currentCallback = null;
+                        currentCallback = flushCallback;
                         cb(null, value);
                     } else {
                         this.push(value);
@@ -105,12 +106,11 @@ export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, ma
                 if (numInFlight === 0) {
                     callback();
                 } else {
-                    push = value => {
-                        numInFlight--;
+                    currentCallback = flushCallback = (_, value) => {
                         if (numInFlight === 0) {
                             callback(null, value);
                         } else {
-                            this.push(value as R);
+                            this.push(value);
                         }
                     };
                 }
