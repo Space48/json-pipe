@@ -295,7 +295,7 @@ interface TransformOptions<I, O> {
     final?(this: Transform<I, O>, callback: (error?: Error | null) => void): void;
     flush?(this: Transform<I, O>, callback: TransformCallback<O>): void;
 }
-interface Transform<I = any, O = any> extends stream.Duplex {
+export interface Transform<I = any, O = any> extends stream.Duplex {
     push(element: O): boolean;
 }
 export function transform<I, O>(options: TransformOptions<I, O>): Transform<I, O>;
