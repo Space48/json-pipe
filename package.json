@@ -29,12 +29,9 @@
     "registry": "https://npm.pkg.github.com/"
   },
   "devDependencies": {
-    "@types/multipipe": "^3.0.0",
     "@types/node": "^12.12.37",
     "rimraf": "^3.0.2",
     "typescript": "^3.8.3"
   },
-  "dependencies": {
-    "multipipe": "^4.0.0"
-  }
+  "dependencies": {}
 }
