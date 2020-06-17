@@ -5,10 +5,10 @@
     "strict": true,
     "outDir": "lib",
     "removeComments": true,
-    "target": "es2015",
+    "target": "es2018",
     "sourceMap": true,
-    "lib": ["ES2015"],
+    "lib": ["ES2018"],
     "declaration": true
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "index.ts.stream", "index.ts.OLD"]
 }

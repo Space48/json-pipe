@@ -5,9 +5,9 @@
     "strict": true,
     "outDir": "lib",
     "removeComments": true,
-    "target": "es2017",
+    "target": "es2018",
     "sourceMap": false,
-    "lib": ["ES2017"],
+    "lib": ["ES2018"],
     "declaration": true
   },
   "include": ["index.ts"]

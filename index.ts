@@ -10,9 +10,12 @@ export function jsonTransform(transform: Transform): Promise<void> {
     return jsonSource(output);
 }
 
+export type Source<T = any> = AsyncIterable<T> | (() => AsyncIterable<T>);
+
 // iterates `source` and writes the output to stdout as JSON lines
-export function jsonSource(source: AsyncIterable<any>): Promise<void> {
-    const outputLines = map(element => `${JSON.stringify(element)}\n`)(source);
+export function jsonSource<T>(source: Source<T>): Promise<void> {
+    const iterable = typeof source === 'function' ? source() : source;
+    const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
     return writeToStdout(stream.Readable.from(outputLines));
 }
 
@@ -27,7 +30,7 @@ export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(t1: Transform<T1, T2>, t
 export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>): Transform<T1, T9>;
 export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>): Transform<T1, T10>;
 export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>, t10: Transform<T10, T11>): Transform<T1, T11>;
-export function compose(t1: Transform, t2: Transform, ...rest: Transform[]): Transform;
+export function compose(...transforms: any[]): Transform;
 export function compose(...transforms: any[]): Transform {
     return input => transforms.reduce((previous, t) => t(previous), input);
 }
@@ -41,11 +44,18 @@ export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
 }
 
 type AsyncMapper<T, R> = (input: T) => Promise<R>;
+export type MapAsyncOptions = {
+    concurrency?: number,       // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
+    preserveOrder?: boolean,    // Default: `false`. Ensure output order matches input order. Very slow `mapper()` calls will reduce throughput. (If `concurrency > 1`.)
+    outputBufferSize?: number,  // Default: `concurrency`. Max number of output elements to buffer before pausing input. (If `preserverOrder == true`.)
+};
 export function mapAsync<T, R>(mapper: AsyncMapper<T, R>): Transform<T, R>;
-export function mapAsync<T, R>(concurrency: number, mapper: AsyncMapper<T, R>): Transform<T, R>;
-export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, maybeMapper?: AsyncMapper<T, R>): Transform<T, R> {
-    const mapper = maybeMapper || mapperOrConcurrency as AsyncMapper<T, R>;
-    const maxConcurrency = maybeMapper && mapperOrConcurrency as number || 1;
+export function mapAsync<T, R>(options: MapAsyncOptions, mapper: AsyncMapper<T, R>): Transform<T, R>;
+export function mapAsync<T, R>(mapperOrOptions: AsyncMapper<T, R>|MapAsyncOptions, maybeMapper?: AsyncMapper<T, R>): Transform<T, R> {
+    const mapper = maybeMapper || mapperOrOptions as AsyncMapper<T, R>;
+    const options = maybeMapper && mapperOrOptions as MapAsyncOptions;
+    const maxConcurrency = options?.concurrency ?? 1;
+    const preserveOrder = options?.preserveOrder ?? false;
     if (maxConcurrency < 1) {
         throw new Error(`Concurrency must be greater than 0, but ${maxConcurrency} was specified.`);
     }
@@ -53,6 +63,55 @@ export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, ma
         return async function* (input) {
             for await (const element of input) {
                 yield await mapper(element);
+            }
+        };
+    } else if (preserveOrder) {
+        const maxOutputBufferSize = options?.outputBufferSize ?? maxConcurrency;
+        const outputQueueMaxSize = maxConcurrency + maxOutputBufferSize;
+        const pending = Symbol();
+        return async function* (input) {
+            let readInputJob: Promise<void>|null;
+            let mapJobs: Promise<void>[] = [];
+            const outputQueue: Array<Symbol|R> = [];
+            let inputFinished = false;
+            let nextInputIndex = 0;
+            let nextOutputIndex = 0;
+
+            const inputIterator = input[Symbol.asyncIterator]();
+
+            async function* generateOutput() {
+                await Promise.race(readInputJob ? [readInputJob, ...mapJobs] : mapJobs);
+                while (outputQueue.length > 0 && outputQueue[0] !== pending) {
+                    const outputEl = outputQueue.shift() as R;
+                    nextOutputIndex++;
+                    yield outputEl;
+                }
+            }
+
+            do {
+                readInputJob = inputIterator.next().then(({done, value}) => {
+                    if (done) {
+                        inputFinished = true;
+                    } else {
+                        let index = nextInputIndex++;
+                        const mapJob = mapper(value).then(output => {
+                            mapJobs = mapJobs.filter(job => job !== mapJob);
+                            const queueIndex = index - nextOutputIndex;
+                            outputQueue[queueIndex] = output;
+                        });
+                        outputQueue.push(pending);
+                        mapJobs.push(mapJob);
+                    }
+                    readInputJob = null;
+                });
+
+                do {
+                    yield* generateOutput();
+                } while (readInputJob || mapJobs.length === maxConcurrency || outputQueue.length === outputQueueMaxSize);
+            } while (!inputFinished);
+
+            while (mapJobs.length > 0) {
+                yield* generateOutput();
             }
         };
     } else {
@@ -66,8 +125,9 @@ export function mapAsync<T, R>(mapperOrConcurrency: AsyncMapper<T, R>|number, ma
 
             async function* generateOutput() {
                 await Promise.race(readInputJob ? [readInputJob, ...mapJobs] : mapJobs);
-                yield* outputBuffer;
+                const output = outputBuffer;
                 outputBuffer = [];
+                yield* output;
             }
 
             do {
@@ -126,8 +186,9 @@ export function flatMapAsync<T, R>(mapperOrConcurrency: AsyncFlatMapper<T, R>|nu
 
             async function* generateOutput() {
                 await Promise.race(readInputJob ? [readInputJob, ...readOutputJobs] : readOutputJobs);
-                yield* outputBuffer;
+                const output = outputBuffer;
                 outputBuffer = [];
+                yield* output;
             }
 
             do {
