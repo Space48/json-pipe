@@ -4,34 +4,37 @@ import * as readline from "readline";
 export type Transform<I = any, O = any> = (input: AsyncIterable<I>) => AsyncIterable<O>;
 
 // reads JSON lines from stdin, transforms them via `transform`, and writes the output to stdout as JSON lines
-export function jsonTransform(transform: Transform): Promise<void> {
+export function transformJson(transform: Transform): Promise<void> {
     const f = compose(map(JSON.parse), transform);
     const output = f((readline.createInterface({input: process.stdin})));
-    return jsonSource(output);
+    return streamJson(output);
 }
 
 export type Source<T = any> = AsyncIterable<T> | (() => AsyncIterable<T>);
 
 // iterates `source` and writes the output to stdout as JSON lines
-export function jsonSource<T>(source: Source<T>): Promise<void> {
+export function streamJson<T>(source: Source<T>): Promise<void> {
     const iterable = typeof source === 'function' ? source() : source;
     const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
     return writeToStdout(stream.Readable.from(outputLines));
 }
 
-export function compose<T>(): Transform<T, T>;
-export function compose<T1, T2>(t1: Transform<T1, T2>): Transform<T1, T2>;
-export function compose<T1, T2, T3>(t1: Transform<T1, T2>, t2: Transform<T2, T3>): Transform<T1, T3>;
-export function compose<T1, T2, T3, T4>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>): Transform<T1, T4>;
-export function compose<T1, T2, T3, T4, T5>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>): Transform<T1, T5>;
-export function compose<T1, T2, T3, T4, T5, T6>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>): Transform<T1, T6>;
-export function compose<T1, T2, T3, T4, T5, T6, T7>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>): Transform<T1, T7>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>): Transform<T1, T8>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>): Transform<T1, T9>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>): Transform<T1, T10>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(t1: Transform<T1, T2>, t2: Transform<T2, T3>, t3: Transform<T3, T4>, t4: Transform<T4, T5>, t5: Transform<T5, T6>, t6: Transform<T6, T7>, t7: Transform<T7, T8>, t8: Transform<T8, T9>, t9: Transform<T9, T10>, t10: Transform<T10, T11>): Transform<T1, T11>;
-export function compose(...transforms: any[]): Transform;
-export function compose(...transforms: any[]): Transform {
+type Fn<I = any, O = any> = (arg: I) => O;
+
+export function compose<T>(): Fn<T, T>;
+export function compose<T1, T2>(t1: Fn<T1, T2>): Fn<T1, T2>;
+export function compose<T1, T2, T3>(t1: Fn<T1, T2>, t2: Fn<T2, T3>): Fn<T1, T3>;
+export function compose<T1, T2, T3, T4>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>): Fn<T1, T4>;
+export function compose<T1, T2, T3, T4, T5>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>): Fn<T1, T5>;
+export function compose<T1, T2, T3, T4, T5, T6>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>): Fn<T1, T6>;
+export function compose<T1, T2, T3, T4, T5, T6, T7>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>): Fn<T1, T7>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>): Fn<T1, T8>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>): Fn<T1, T9>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>, t9: Fn<T9, T10>): Fn<T1, T10>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>, t9: Fn<T9, T10>, t10: Fn<T10, T11>): Fn<T1, T11>;
+export function compose<T = any>(...fns: Fn<T, T>[]): Fn<T, T>;
+//export function compose(...transforms: Fn[]): Fn;
+export function compose(...transforms: Fn[]): Fn {
     return input => transforms.reduce((previous, t) => t(previous), input);
 }
 
@@ -161,11 +164,15 @@ export function flatMap<T, R>(mapper: (input: T) => Iterable<R>): Transform<T, R
 }
 
 type AsyncFlatMapper<T, R> = (input: T) => AsyncIterable<R>;
+export type FlatMapAsyncOptions = {
+    concurrency?: number,       // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
+};
 export function flatMapAsync<T, R>(mapper: AsyncFlatMapper<T, R>): Transform<T, R>;
-export function flatMapAsync<T, R>(concurrency: number, mapper: AsyncFlatMapper<T, R>): Transform<T, R>;
-export function flatMapAsync<T, R>(mapperOrConcurrency: AsyncFlatMapper<T, R>|number, maybeMapper?: AsyncFlatMapper<T, R>): Transform<T, R> {
-    const mapper = maybeMapper || mapperOrConcurrency as AsyncFlatMapper<T, R>;
-    const maxConcurrency = maybeMapper && mapperOrConcurrency as number || 1;
+export function flatMapAsync<T, R>(options: FlatMapAsyncOptions, mapper: AsyncFlatMapper<T, R>): Transform<T, R>;
+export function flatMapAsync<T, R>(mapperOrOptions: AsyncFlatMapper<T, R>|FlatMapAsyncOptions, maybeMapper?: AsyncFlatMapper<T, R>): Transform<T, R> {
+    const mapper = maybeMapper || mapperOrOptions as AsyncFlatMapper<T, R>;
+    const options = maybeMapper && mapperOrOptions as MapAsyncOptions;
+    const maxConcurrency = options?.concurrency ?? 1;
     if (maxConcurrency < 1) {
         throw new Error(`Concurrency must be greater than 0, but ${maxConcurrency} was specified`);
     }
@@ -224,14 +231,51 @@ export function flatMapAsync<T, R>(mapperOrConcurrency: AsyncFlatMapper<T, R>|nu
     }
 }
 
-export function reduce<T, U>(initialValue: U, callbackfn: (previousValue: U, currentValue: T) => U): Transform<T, U> {
-    return async function* (input) {
-        let currentValue = initialValue;
+export function first<T>(options?: {}): Fn<AsyncIterable<T>, Promise<T>>;
+export function first<T, D>(options: {default: D}): Fn<AsyncIterable<T>, Promise<T|D>>;
+export function first<T, D>(options?: {default?: D}): Fn<AsyncIterable<T>, Promise<T|D>> {
+    const hasDefault = Boolean(options && 'default' in options);
+    return async (input) => {
         for await (const element of input) {
-            currentValue = callbackfn(currentValue, element);
+            return element;
         }
-        yield currentValue;
+        if (hasDefault) {
+            return options!.default!;
+        }
+        throw new Error('first() was called with an empty iterator and no default value.');
     };
+}
+
+export function reduce<T>(callbackfn: (previousValue: T, currentValue: T) => T): Fn<AsyncIterable<T>, Promise<T>>;
+export function reduce<T, U>(callbackfn: (previousValue: U, currentValue: T) => U, initialValue: U): Fn<AsyncIterable<T>, Promise<U>>;
+export function reduce<T>(callbackfn: (previousValue: T, currentValue: T) => T, initialValue: T): Fn<AsyncIterable<T>, Promise<T>>;
+export function reduce<T>(callbackfn: (previousValue: any, currentValue: T) => any, ...optionalArgs: any[]): Fn<AsyncIterable<T>, Promise<any>> {
+    if (optionalArgs.length === 0) {
+        return async (input) => {
+            let firstElement = true;
+            let currentValue: any;
+            for await (const element of input) {
+                if (firstElement) {
+                    currentValue = element;
+                    firstElement = false;
+                } else {
+                    currentValue = callbackfn(currentValue, element);
+                }
+            }
+            if (firstElement) {
+                throw new Error('reduce() was called with an empty iterator and no default value.');
+            }
+            return currentValue;
+        };
+    } else {
+        return async (input) => {
+            let currentValue: any = optionalArgs[0];
+            for await (const element of input) {
+                currentValue = callbackfn(currentValue, element);
+            }
+            return currentValue;
+        };
+    }
 }
 
 export function tap<T>(observer: (element: T) => void): Transform<T, T> {
