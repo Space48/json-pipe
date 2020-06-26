@@ -155,6 +155,8 @@ export function mapAsync<T, R>(mapperOrOptions: AsyncMapper<T, R>|MapAsyncOption
             while (mapJobs.length > 0) {
                 yield* generateOutput();
             }
+
+            yield* outputBuffer;
         };
     }
 }
@@ -227,6 +229,8 @@ export function flatMapAsync<T, R>(mapperOrOptions: AsyncFlatMapper<T, R>|FlatMa
             while (readOutputJobs.length > 0) {
                 yield* generateOutput();
             }
+
+            yield* outputBuffer;
         };
     }
 }
