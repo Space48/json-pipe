@@ -1,12 +1,15 @@
-import * as stream from "stream";
 import * as readline from "readline";
+
+if (typeof Symbol === undefined || !(Symbol as any).asyncIterator) {
+    (Symbol as any).asyncIterator = Symbol.for("Symbol.asyncIterator");
+}
 
 export type Transform<I = any, O = any> = (input: AsyncIterable<I>) => AsyncIterable<O>;
 
 // reads JSON lines from stdin, transforms them via `transform`, and writes the output to stdout as JSON lines
 export function transformJson(transform: Transform): Promise<void> {
     const f = compose(map(JSON.parse), transform);
-    const output = f((readline.createInterface({input: process.stdin})));
+    const output = f(readLinesFromStdin());
     return streamJson(output);
 }
 
@@ -16,7 +19,7 @@ export type Source<T = any> = AsyncIterable<T> | (() => AsyncIterable<T>);
 export function streamJson<T>(source: Source<T>): Promise<void> {
     const iterable = typeof source === 'function' ? source() : source;
     const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
-    return writeToStdout(stream.Readable.from(outputLines));
+    return writeToStdout(outputLines);
 }
 
 type Fn<I = any, O = any> = (arg: I) => O;
@@ -404,43 +407,37 @@ export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
     };
 }
 
-// pipe source to stdout, only resolving once everything is flushed to stdout. Treats EPIPE as a success.
-function writeToStdout(source: stream.Readable): Promise<void> {
-    return new Promise((resolve, reject) => {
-        source.once('error', reject);
-
-        process.stdout.once('error', err => {
-            if (err?.code === 'EPIPE') {
-                source.destroy();
-                resolve();
-            } else {
-                source.destroy(err);
+// node 8 compat
+async function* readLinesFromStdin(): AsyncIterable<string> {
+    const rl = readline.createInterface({input: process.stdin});
+    if ((rl as any)[Symbol.asyncIterator]) {
+        yield* (rl as any);  
+    } else {
+        const closed = Symbol();
+        const close = new Promise<symbol>(resolve => rl.once('close', () => resolve(closed)));
+        while (true) {
+            const lineOrClosed = await Promise.race([
+                close,
+                new Promise<string>(resolve => rl.once('line', resolve))
+            ]);
+            if (lineOrClosed === closed) {
+                return;
             }
-        });
+            yield lineOrClosed as string;
+        }
+    }
+}
 
-        let numInFlight = 0;
-        let sourceEnded = false;
-        source.once('end', () => {
-            sourceEnded = true;
-            numInFlight === 0 && resolve();
-        });
-        const write = function (el: any, callback?: any) {
-            numInFlight++;
-            return process.stdout.write(el, e => {
-                if (e) {
-                    callback && callback(e);
-                } else {
-                    numInFlight--;
-                    callback && callback();
-                    sourceEnded && numInFlight === 0 && resolve();
-                }
-            });
-        };
-
-        source.pipe(new Proxy(process.stdout, {
-            get(stdout, prop) {
-                return prop === 'write' ? write : stdout[prop as keyof typeof stdout];
+// node 8 compat. Treats EPIPE as a success.
+async function writeToStdout(source: AsyncIterable<any>): Promise<void> {
+    for await (const data of source) {
+        try {
+            await new Promise((resolve, reject) => process.stdout.write(data, (error?: any) => error ? reject(error) : resolve()));
+        } catch (e) {
+            if (e?.code === 'EPIPE') {
+                return;
             }
-        }));
-    });
+            throw e;
+        }
+    }
 }

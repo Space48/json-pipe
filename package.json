@@ -13,7 +13,7 @@
     "prepare": "npm run clean && npm run build -- --build tsconfig.publish.json"
   },
   "engines": {
-    "node": ">= 10.3.0"
+    "node": ">= 8"
   },
   "repository": {
     "type": "git",
@@ -29,7 +29,7 @@
     "registry": "https://npm.pkg.github.com/"
   },
   "devDependencies": {
-    "@types/node": "^12.12.37",
+    "@types/node": "^8.10.61",
     "rimraf": "^3.0.2",
     "typescript": "^3.8.3"
   },
