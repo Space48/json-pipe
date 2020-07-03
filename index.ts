@@ -239,6 +239,16 @@ export function flatMapAsync<T, R>(mapperOrOptions: AsyncFlatMapper<T, R>|FlatMa
     }
 }
 
+export function collectArray<T>(): Fn<AsyncIterable<T>, Promise<T[]>> {
+    return reduce(
+        (result, element) => {
+            result.push(element);
+            return result;
+        },
+        [] as T[]
+    )
+}
+
 export function first<T>(options?: {}): Fn<AsyncIterable<T>, Promise<T>>;
 export function first<T, D>(options: {default: D}): Fn<AsyncIterable<T>, Promise<T|D>>;
 export function first<T, D>(options?: {default?: D}): Fn<AsyncIterable<T>, Promise<T|D>> {
