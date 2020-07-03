@@ -1,5 +1,6 @@
 import * as readline from "readline";
 
+// node 8 compat
 if (typeof Symbol === undefined || !(Symbol as any).asyncIterator) {
     (Symbol as any).asyncIterator = Symbol.for("Symbol.asyncIterator");
 }
@@ -407,37 +408,86 @@ export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
     };
 }
 
-// node 8 compat
-async function* readLinesFromStdin(): AsyncIterable<string> {
+function readLinesFromStdin(): AsyncIterable<string> {
     const rl = readline.createInterface({input: process.stdin});
-    if ((rl as any)[Symbol.asyncIterator]) {
-        yield* (rl as any);  
-    } else {
-        const closed = Symbol();
-        const close = new Promise<symbol>(resolve => rl.once('close', () => resolve(closed)));
-        while (true) {
-            const lineOrClosed = await Promise.race([
-                close,
-                new Promise<string>(resolve => rl.once('line', resolve))
-            ]);
-            if (lineOrClosed === closed) {
+    return (rl as any)[Symbol.asyncIterator] ? rl as any : iterateReadLine(rl);
+}
+
+// node 8 compat
+async function* iterateReadLine(rl: readline.ReadLine): AsyncIterable<string> {
+    let closed = false;
+    rl.once('close', () => closed = true);
+    
+    do {
+        const lineOrClosed = await new Promise<string|void>(resolve => {
+            if (closed) {
+                resolve();
                 return;
             }
-            yield lineOrClosed as string;
+            rl.once('line', line => {
+                rl.removeListener('close', resolve);
+                resolve(line);
+            })
+            rl.once('close', resolve);
+        });
+        if (typeof lineOrClosed === 'string') {
+            yield lineOrClosed;
         }
-    }
+    } while (!closed);
 }
 
 // node 8 compat. Treats EPIPE as a success.
-async function writeToStdout(source: AsyncIterable<any>): Promise<void> {
-    for await (const data of source) {
+function writeToStdout(source: AsyncIterable<string>): Promise<void> {
+    let error: any = undefined;
+    process.stdout.once('error', e => error = e);
+    const interruptOnError = <T>(promise: Promise<T>) => new Promise<T>((resolve, reject) => {
+        if (error) {
+            reject(error);
+            return;
+        }
+
+        process.stdout.once('error', reject);
+        promise.then(
+            value => (process.stdout.removeListener('error', reject), resolve(value)),
+            reject
+        );
+    });
+
+    return new Promise(async (resolve, reject) => {
         try {
-            await new Promise((resolve, reject) => process.stdout.write(data, (error?: any) => error ? reject(error) : resolve()));
+            let numInFlight = 0;
+
+            let sourceFinished = false;
+            const sourceIterator = source[Symbol.asyncIterator]();
+            do {
+                const value = await interruptOnError(sourceIterator.next());
+                if (value.done) {
+                    sourceFinished = true;
+                } else {
+                    numInFlight++;
+                    const stdoutReadyForMore = process.stdout.write(value.value, (error?: any) => {
+                        if (!error) {
+                            numInFlight--;
+                            if (numInFlight === 0 && sourceFinished) {
+                                resolve();
+                            }
+                        }
+                    });
+                    if (!stdoutReadyForMore) {
+                        await interruptOnError(new Promise(resolve => process.stdout.once('drain', resolve)));
+                    }
+                }
+            } while (!sourceFinished);
+
+            if (numInFlight === 0) {
+                resolve();
+            }
         } catch (e) {
             if (e?.code === 'EPIPE') {
-                return;
+                resolve();
+            } else {
+                reject(e);
             }
-            throw e;
         }
-    }
+    });
 }
