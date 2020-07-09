@@ -1,6 +1,6 @@
 {
   "name": "@space48/json-pipe",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "A tiny library for creating JSON pipeline CLI programs",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
