@@ -296,10 +296,10 @@ export function reduce<T>(callbackfn: (previousValue: any, currentValue: T) => a
     }
 }
 
-export function tap<T>(observer: (element: T) => void): Transform<T, T> {
+export function tap<T>(observer: (element: T) => Promise<any>|any): Transform<T, T> {
     return async function* (input) {
         for await (const element of input) {
-            observer(element);
+            await observer(element);
             yield element;
         }
     };
