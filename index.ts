@@ -427,22 +427,28 @@ function readLinesFromStdin(): AsyncIterable<string> {
 async function* iterateReadLine(rl: readline.ReadLine): AsyncIterable<string> {
     let closed = false;
     rl.once('close', () => closed = true);
+
+    let buffer: string[] = [];
+    rl.on('line', line => buffer.push(line));
     
     do {
-        const lineOrClosed = await new Promise<string|void>(resolve => {
+        await new Promise<string|void>(resolve => {
             if (closed) {
                 resolve();
                 return;
             }
-            rl.once('line', line => {
+            rl.once('line', () => {
+                rl.pause();
                 rl.removeListener('close', resolve);
-                resolve(line);
-            })
+                resolve();
+            });
             rl.once('close', resolve);
+            rl.resume();
         });
-        if (typeof lineOrClosed === 'string') {
-            yield lineOrClosed;
-        }
+
+        const output = buffer;
+        buffer = [];
+        yield* output;
     } while (!closed);
 }
 
