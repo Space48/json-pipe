@@ -25,21 +25,38 @@ export function streamJson<T>(source: Source<T>): Promise<void> {
 
 type Fn<I = any, O = any> = (arg: I) => O;
 
+export function pipe<T>(input: T): T;
+export function pipe<T1, T2>(input: T1, f1: Fn<T1, T2>): T2;
+export function pipe<T1, T2, T3>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>): T3;
+export function pipe<T1, T2, T3, T4>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>): T4;
+export function pipe<T1, T2, T3, T4, T5>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>): T5;
+export function pipe<T1, T2, T3, T4, T5, T6>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>): T6;
+export function pipe<T1, T2, T3, T4, T5, T6, T7>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>): T7;
+export function pipe<T1, T2, T3, T4, T5, T6, T7, T8>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>): T8;
+export function pipe<T1, T2, T3, T4, T5, T6, T7, T8, T9>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>): T9;
+export function pipe<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>, f9: Fn<T9, T10>): T10;
+export function pipe<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(input: T1, f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>, f9: Fn<T9, T10>, f10: Fn<T10, T11>): T11;
+export function pipe<T = any>(input: T, ...fns: Fn<T, T>[]): T;
+//export function pipe(...transforms: Fn[]): Fn;
+export function pipe(input: unknown, ...fns: Fn[]): unknown {
+    return compose(...fns)(input);
+}
+
 export function compose<T>(): Fn<T, T>;
-export function compose<T1, T2>(t1: Fn<T1, T2>): Fn<T1, T2>;
-export function compose<T1, T2, T3>(t1: Fn<T1, T2>, t2: Fn<T2, T3>): Fn<T1, T3>;
-export function compose<T1, T2, T3, T4>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>): Fn<T1, T4>;
-export function compose<T1, T2, T3, T4, T5>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>): Fn<T1, T5>;
-export function compose<T1, T2, T3, T4, T5, T6>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>): Fn<T1, T6>;
-export function compose<T1, T2, T3, T4, T5, T6, T7>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>): Fn<T1, T7>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>): Fn<T1, T8>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>): Fn<T1, T9>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>, t9: Fn<T9, T10>): Fn<T1, T10>;
-export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(t1: Fn<T1, T2>, t2: Fn<T2, T3>, t3: Fn<T3, T4>, t4: Fn<T4, T5>, t5: Fn<T5, T6>, t6: Fn<T6, T7>, t7: Fn<T7, T8>, t8: Fn<T8, T9>, t9: Fn<T9, T10>, t10: Fn<T10, T11>): Fn<T1, T11>;
+export function compose<T1, T2>(f1: Fn<T1, T2>): Fn<T1, T2>;
+export function compose<T1, T2, T3>(f1: Fn<T1, T2>, f2: Fn<T2, T3>): Fn<T1, T3>;
+export function compose<T1, T2, T3, T4>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>): Fn<T1, T4>;
+export function compose<T1, T2, T3, T4, T5>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>): Fn<T1, T5>;
+export function compose<T1, T2, T3, T4, T5, T6>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>): Fn<T1, T6>;
+export function compose<T1, T2, T3, T4, T5, T6, T7>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>): Fn<T1, T7>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>): Fn<T1, T8>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>): Fn<T1, T9>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>, f9: Fn<T9, T10>): Fn<T1, T10>;
+export function compose<T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11>(f1: Fn<T1, T2>, f2: Fn<T2, T3>, f3: Fn<T3, T4>, f4: Fn<T4, T5>, f5: Fn<T5, T6>, f6: Fn<T6, T7>, f7: Fn<T7, T8>, f8: Fn<T8, T9>, f9: Fn<T9, T10>, f10: Fn<T10, T11>): Fn<T1, T11>;
 export function compose<T = any>(...fns: Fn<T, T>[]): Fn<T, T>;
 //export function compose(...transforms: Fn[]): Fn;
-export function compose(...transforms: Fn[]): Fn {
-    return input => transforms.reduce((previous, t) => t(previous), input);
+export function compose(...fns: Fn[]): Fn {
+    return input => fns.reduce((previous, t) => t(previous), input);
 }
 
 export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
