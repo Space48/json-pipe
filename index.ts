@@ -472,7 +472,8 @@ async function* iterateReadLine(rl: readline.ReadLine): AsyncIterable<string> {
 // node 8 compat. Treats EPIPE as a success.
 function writeToStdout(source: AsyncIterable<string>): Promise<void> {
     let error: any = undefined;
-    process.stdout.once('error', e => error = e);
+    const captureError = (e: any) => error = e;
+    process.stdout.once('error', captureError);
     const interruptOnError = <T>(promise: Promise<T>) => new Promise<T>((resolve, reject) => {
         if (error) {
             reject(error);
@@ -482,7 +483,7 @@ function writeToStdout(source: AsyncIterable<string>): Promise<void> {
         process.stdout.once('error', reject);
         promise.then(
             value => (process.stdout.removeListener('error', reject), resolve(value)),
-            reject
+            reason => (process.stdout.removeListener('error', reject), reject(reason)),
         );
     });
 
@@ -521,6 +522,8 @@ function writeToStdout(source: AsyncIterable<string>): Promise<void> {
             } else {
                 reject(e);
             }
+        } finally {
+            process.stdout.removeListener('error', captureError);
         }
     });
 }
