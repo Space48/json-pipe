@@ -70,8 +70,8 @@ export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
 
 type AsyncMapper<T, R> = (input: T) => Promise<R>;
 export type MapAsyncOptions = {
-  concurrency?: number,     // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
-  preserveOrder?: boolean,  // Default: `false`. Ensure output order matches input order. Very slow `mapper()` calls will reduce throughput. (If `concurrency > 1`.)
+  concurrency?: number,       // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
+  preserveOrder?: boolean,    // Default: `false`. Ensure output order matches input order. Very slow `mapper()` calls will reduce throughput. (If `concurrency > 1`.)
   outputBufferSize?: number,  // Default: `concurrency`. Max number of output elements to buffer before pausing input. (If `preserverOrder == true`.)
 };
 export function mapAsync<T, R>(mapper: AsyncMapper<T, R>): Transform<T, R>;
