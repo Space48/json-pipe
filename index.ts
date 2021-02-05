@@ -7,21 +7,22 @@ if (typeof Symbol === undefined || !(Symbol as any).asyncIterator) {
 
 export type Transform<I = any, O = any> = (input: AsyncIterable<I>) => AsyncIterable<O>;
 
-// reads JSON lines from stdin, transforms them via `transform`, and writes the output to stdout as JSON lines
-export function transformJson(transform: Transform): Promise<void> {
-  const f = compose(map(JSON.parse), transform);
-  const output = f(readLinesFromStdin());
-  return streamJson(output);
+export function readJsonLinesFrom<T = unknown>(source: NodeJS.ReadableStream): AsyncIterable<T> {
+  return pipe(
+    readLinesFrom(source),
+    map(JSON.parse),
+  );
+}
+
+export function writeJsonLinesTo(destination: NodeJS.WritableStream): <T>(source: Source<T>) => Promise<void> {
+  return source => pipe(
+    typeof source === 'function' ? source() : source,
+    map(element => `${JSON.stringify(element)}\n`),
+    writeTo(destination),
+  );
 }
 
 export type Source<T = any> = AsyncIterable<T> | (() => AsyncIterable<T>);
-
-// iterates `source` and writes the output to stdout as JSON lines
-export function streamJson<T>(source: Source<T>): Promise<void> {
-  const iterable = typeof source === 'function' ? source() : source;
-  const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
-  return writeToStdout(outputLines);
-}
 
 type Fn<I = any, O = any> = (arg: I) => O;
 
@@ -435,8 +436,8 @@ export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
   };
 }
 
-function readLinesFromStdin(): AsyncIterable<string> {
-  const rl = readline.createInterface({input: process.stdin});
+function readLinesFrom(source: NodeJS.ReadableStream): AsyncIterable<string> {
+  const rl = readline.createInterface({input: source});
   return (rl as any)[Symbol.asyncIterator] ? rl as any : iterateReadLine(rl);
 }
 
@@ -470,20 +471,20 @@ async function* iterateReadLine(rl: readline.ReadLine): AsyncIterable<string> {
 }
 
 // node 8 compat. Treats EPIPE as a success.
-function writeToStdout(source: AsyncIterable<string>): Promise<void> {
+const writeTo = (destination: NodeJS.WritableStream) => (source: AsyncIterable<string>): Promise<void> => {
   let error: any = undefined;
   const captureError = (e: any) => error = e;
-  process.stdout.once('error', captureError);
+  destination.once('error', captureError);
   const interruptOnError = <T>(promise: Promise<T>) => new Promise<T>((resolve, reject) => {
     if (error) {
       reject(error);
       return;
     }
 
-    process.stdout.once('error', reject);
+    destination.once('error', reject);
     promise.then(
-      value => (process.stdout.removeListener('error', reject), resolve(value)),
-      reason => (process.stdout.removeListener('error', reject), reject(reason)),
+      value => (destination.removeListener('error', reject), resolve(value)),
+      reason => (destination.removeListener('error', reject), reject(reason)),
     );
   });
 
@@ -499,7 +500,7 @@ function writeToStdout(source: AsyncIterable<string>): Promise<void> {
           sourceFinished = true;
         } else {
           numInFlight++;
-          const stdoutReadyForMore = process.stdout.write(value.value, (error?: any) => {
+          const stdoutReadyForMore = destination.write(value.value, (error?: any) => {
             if (!error) {
               numInFlight--;
               if (numInFlight === 0 && sourceFinished) {
@@ -508,7 +509,7 @@ function writeToStdout(source: AsyncIterable<string>): Promise<void> {
             }
           });
           if (!stdoutReadyForMore) {
-            await interruptOnError(new Promise(resolve => process.stdout.once('drain', resolve)));
+            await interruptOnError(new Promise(resolve => destination.once('drain', resolve)));
           }
         }
       } while (!sourceFinished);
@@ -523,7 +524,31 @@ function writeToStdout(source: AsyncIterable<string>): Promise<void> {
         reject(e);
       }
     } finally {
-      process.stdout.removeListener('error', captureError);
+      destination.removeListener('error', captureError);
     }
   });
+}
+
+/** 
+ * Reads JSON lines from stdin, transforms them via `transform`, and writes the output to stdout as JSON lines
+ * 
+ * @deprecated Use pipe(readJsonLinesFrom(process.stdin), transform, writeJsonLinesTo(process.stdout))
+ */
+export function transformJson(transform: Transform): Promise<void> {
+  return pipe(
+    readLinesFrom(process.stdin),
+    transform,
+    writeJsonLinesTo(process.stdout),
+  );
+}
+
+/**
+ * Iterates `source` and writes the output to stdout as JSON lines
+ * 
+ * @deprecated Use writeJsonLinesTo(process.stdout)
+ */
+export function streamJson<T>(source: Source<T>): Promise<void> {
+  const iterable = typeof source === 'function' ? source() : source;
+  const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
+  return writeTo(process.stdout)(outputLines);
 }
