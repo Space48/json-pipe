@@ -1,3 +1,4 @@
+import { EventEmitter } from "events";
 import * as readline from "readline";
 
 // node 8 compat
@@ -60,7 +61,7 @@ export function compose(...fns: Fn[]): Fn {
   return input => fns.reduce((previous, t) => t(previous), input);
 }
 
-export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
+export function map<T, R>(mapper: (input: T) => Promise<R> | R): Transform<T, R> {
   return async function* (input) {
     for await (const element of input) {
       yield mapper(element);
@@ -70,9 +71,8 @@ export function map<T, R>(mapper: (input: T) => R): Transform<T, R> {
 
 type AsyncMapper<T, R> = (input: T) => Promise<R>;
 export type MapAsyncOptions = {
-  concurrency?: number,       // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
-  preserveOrder?: boolean,    // Default: `false`. Ensure output order matches input order. Very slow `mapper()` calls will reduce throughput. (If `concurrency > 1`.)
-  outputBufferSize?: number,  // Default: `concurrency`. Max number of output elements to buffer before pausing input. (If `preserverOrder == true`.)
+  concurrency?: number,     // Default: `1`. Max number of concurrent `mapper()` calls.
+  preserveOrder?: boolean,  // Deprecated. Order is always preserved now.
 };
 export function mapAsync<T, R>(mapper: AsyncMapper<T, R>): Transform<T, R>;
 export function mapAsync<T, R>(options: MapAsyncOptions, mapper: AsyncMapper<T, R>): Transform<T, R>;
@@ -80,107 +80,51 @@ export function mapAsync<T, R>(mapperOrOptions: AsyncMapper<T, R>|MapAsyncOption
   const mapper = maybeMapper || mapperOrOptions as AsyncMapper<T, R>;
   const options = maybeMapper && mapperOrOptions as MapAsyncOptions;
   const maxConcurrency = options?.concurrency ?? 1;
-  const preserveOrder = options?.preserveOrder ?? false;
+
   if (maxConcurrency < 1) {
     throw new Error(`Concurrency must be greater than 0, but ${maxConcurrency} was specified.`);
   }
+
   if (maxConcurrency === 1) {
-    return async function* (input) {
-      for await (const element of input) {
-        yield await mapper(element);
-      }
-    };
-  } else if (preserveOrder) {
-    const maxOutputBufferSize = options?.outputBufferSize ?? maxConcurrency;
-    const outputQueueMaxSize = maxConcurrency + maxOutputBufferSize;
-    const pending = Symbol();
-    return async function* (input) {
-      let readInputJob: Promise<void>|null;
-      let mapJobs: Promise<void>[] = [];
-      const outputQueue: Array<Symbol|R> = [];
-      let inputFinished = false;
-      let nextInputIndex = 0;
-      let nextOutputIndex = 0;
-
-      const inputIterator = input[Symbol.asyncIterator]();
-
-      async function* generateOutput() {
-        await Promise.race(readInputJob ? [readInputJob, ...mapJobs] : mapJobs);
-        while (outputQueue.length > 0 && outputQueue[0] !== pending) {
-          const outputEl = outputQueue.shift() as R;
-          nextOutputIndex++;
-          yield outputEl;
-        }
-      }
-
-      do {
-        readInputJob = inputIterator.next().then(({done, value}) => {
-          if (done) {
-            inputFinished = true;
-          } else {
-            let index = nextInputIndex++;
-            const mapJob = mapper(value).then(output => {
-              mapJobs = mapJobs.filter(job => job !== mapJob);
-              const queueIndex = index - nextOutputIndex;
-              outputQueue[queueIndex] = output;
-            });
-            outputQueue.push(pending);
-            mapJobs.push(mapJob);
-          }
-          readInputJob = null;
-        });
-
-        do {
-          yield* generateOutput();
-        } while (readInputJob || mapJobs.length === maxConcurrency || outputQueue.length === outputQueueMaxSize);
-      } while (!inputFinished);
-
-      while (mapJobs.length > 0) {
-        yield* generateOutput();
-      }
-    };
-  } else {
-    return async function* (input) {
-      let readInputJob: Promise<void>|null;
-      let mapJobs: Promise<void>[] = [];
-      let outputBuffer: R[] = [];
-      let inputFinished = false;
-
-      const inputIterator = input[Symbol.asyncIterator]();
-
-      async function* generateOutput() {
-        await Promise.race(readInputJob ? [readInputJob, ...mapJobs] : mapJobs);
-        const output = outputBuffer;
-        outputBuffer = [];
-        yield* output;
-      }
-
-      do {
-        readInputJob = inputIterator.next().then(({done, value}) => {
-          if (done) {
-            inputFinished = true;
-          } else {
-            const mapJob = mapper(value).then(output => {
-              outputBuffer.push(output);
-              mapJobs = mapJobs.filter(job => job !== mapJob);
-            });
-            mapJobs.push(mapJob);
-          }
-          readInputJob = null;
-        });
-
-        do {
-          yield* generateOutput();
-        } while (readInputJob || mapJobs.length === maxConcurrency);
-      } while (!inputFinished);
-
-      while (mapJobs.length > 0) {
-        yield* generateOutput();
-      }
-
-      yield* outputBuffer;
-    };
+    return map(mapper);
   }
+
+  const maxInputOutputDelta = 2 * maxConcurrency;
+
+  return input => {
+    const counters = {
+      input: 0,
+      mapped: 0,
+      output: 0,
+    };
+
+    const bufferController = new BufferController();
+
+    function increment(key: keyof typeof counters) {
+      return () => {
+        counters[key]++;
+        let numItemsBeingMapped = counters.input - counters.mapped;
+        let inputOutputDelta = counters.input - counters.output;
+        if (numItemsBeingMapped >= maxConcurrency || inputOutputDelta >= maxInputOutputDelta) {
+          bufferController.pause();
+        } else {
+          bufferController.resume();
+        }
+      };
+    }
+
+    return pipe(
+      input,
+      tap(increment('input')),
+      map(value => [mapper(value)] as const),
+      tap(([promise]) => {
+        promise.then(increment('mapped'));
+      }),
+      controllableBuffer(bufferController),
+      map(([promise]) => promise),
+      tap(increment('output')),
+    );
+  };
 }
 
 export function flatMap<T, R>(mapper: (input: T) => Iterable<R>): Transform<T, R> {
@@ -189,72 +133,63 @@ export function flatMap<T, R>(mapper: (input: T) => Iterable<R>): Transform<T, R
 
 type AsyncFlatMapper<T, R> = (input: T) => AsyncIterable<R>;
 export type FlatMapAsyncOptions = {
-  concurrency?: number,     // Default: `1`. Max number of concurrent `mapper()` calls. When `concurrency == 1`, element order is always preserved.
+  concurrency?: number,       // Default: `1`. Max number of concurrent `mapper()` calls.
+  preserveOrder?: boolean,    // Deprecated. Order is always preserved now.
+  innerPreloadLimit?: number, // Default: `5`. How many items to preload from each inner iterable.
 };
 export function flatMapAsync<T, R>(mapper: AsyncFlatMapper<T, R>): Transform<T, R>;
 export function flatMapAsync<T, R>(options: FlatMapAsyncOptions, mapper: AsyncFlatMapper<T, R>): Transform<T, R>;
 export function flatMapAsync<T, R>(mapperOrOptions: AsyncFlatMapper<T, R>|FlatMapAsyncOptions, maybeMapper?: AsyncFlatMapper<T, R>): Transform<T, R> {
   const mapper = maybeMapper || mapperOrOptions as AsyncFlatMapper<T, R>;
-  const options = maybeMapper && mapperOrOptions as MapAsyncOptions;
+  const options = maybeMapper && mapperOrOptions as FlatMapAsyncOptions;
   const maxConcurrency = options?.concurrency ?? 1;
+
   if (maxConcurrency < 1) {
     throw new Error(`Concurrency must be greater than 0, but ${maxConcurrency} was specified`);
   }
+
   if (maxConcurrency === 1) {
     return async function* (input) {
       for await (const element of input) {
         yield* mapper(element);
       }
     };
-  } else {
-    return async function* (input) {
-      let readInputJob: Promise<void>|null;
-      let readOutputJobs: Promise<void>[] = [];
-      let outputBuffer: R[] = [];
-      let inputFinished = false;
-
-      const inputIterator = input[Symbol.asyncIterator]();
-
-      async function* generateOutput() {
-        await Promise.race(readInputJob ? [readInputJob, ...readOutputJobs] : readOutputJobs);
-        const output = outputBuffer;
-        outputBuffer = [];
-        yield* output;
-      }
-
-      do {
-        readInputJob = inputIterator.next().then(({done, value}) => {
-          if (done) {
-            inputFinished = true;
-          } else {
-            const outputIterator = mapper(value)[Symbol.asyncIterator]();
-            function advance() {
-              const readOutputJob = outputIterator.next().then(({done, value}) => {
-                if (!done) {
-                  outputBuffer.push(value);
-                  advance();
-                }
-                readOutputJobs = readOutputJobs.filter(job => job !== readOutputJob);
-              });
-              readOutputJobs.push(readOutputJob);   
-            }
-            advance();
-          }
-          readInputJob = null;
-        });
-
-        do {
-          yield* generateOutput();
-        } while (readInputJob || readOutputJobs.length === maxConcurrency);
-      } while (!inputFinished);
-
-      while (readOutputJobs.length > 0) {
-        yield* generateOutput();
-      }
-
-      yield* outputBuffer;
-    };
   }
+  
+  const maxInputOutputDelta = 2 * maxConcurrency;
+  const innerPreloadLimit = options?.innerPreloadLimit ?? 5;
+
+  return input => {
+    const counters = {
+      input: 0,
+      mapped: 0,
+      output: 0,
+    };
+
+    const bufferController = new BufferController();
+
+    function increment(key: keyof typeof counters) {
+      return () => {
+        counters[key]++;
+        let numItemsBeingMapped = counters.input - counters.mapped;
+        let inputOutputDelta = counters.input - counters.output;
+        if (numItemsBeingMapped >= maxConcurrency || inputOutputDelta >= maxInputOutputDelta) {
+          bufferController.pause();
+        } else {
+          bufferController.resume();
+        }
+      };
+    }
+
+    return pipe(
+      input,
+      tap(increment('input')),
+      map(compose(mapper, onEnd(increment('mapped')), buffer(innerPreloadLimit))),
+      controllableBuffer(bufferController),
+      tap(increment('output')),
+      flatten(),
+    );
+  };
 }
 
 export function collectArray<T>(): Fn<AsyncIterable<T>, Promise<T[]>> {
@@ -323,7 +258,16 @@ export function tap<T>(observer: (element: T) => Promise<any>|any): Transform<T,
   };
 }
 
-export function flatten<T>(): Transform<Iterable<T>, T> {
+export function onEnd<T>(observer: () => Promise<any>|any): Transform<T, T> {
+  return async function* (input) {
+    for await (const element of input) {
+      yield element;
+    }
+    await observer();
+  };
+}
+
+export function flatten<T>(): Transform<Iterable<T> | AsyncIterable<T>, T> {
   return async function* (input) {
     for await (const element of input) {
       yield* element;
@@ -434,6 +378,12 @@ export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
       yield element;
     }
   };
+}
+
+export async function * range(from: number, to: number, step: number = 1): AsyncIterable<number> {
+  for (let n = from; n <= to; n += step) {
+    yield n;
+  }
 }
 
 function readLinesFrom(source: NodeJS.ReadableStream): AsyncIterable<string> {
@@ -551,4 +501,100 @@ export function streamJson<T>(source: Source<T>): Promise<void> {
   const iterable = typeof source === 'function' ? source() : source;
   const outputLines = map(element => `${JSON.stringify(element)}\n`)(iterable);
   return writeTo(process.stdout)(outputLines);
+}
+
+function buffer<T>(size: number): Transform<T, T> {
+  return input => {
+    let numItemsInBuffer = 0;
+    let bufferController = new BufferController();
+
+    return pipe(
+      input,
+
+      tap(() => {
+        numItemsInBuffer++;
+        if (numItemsInBuffer >= size) {
+          bufferController.pause();
+        }
+      }),
+
+      controllableBuffer(bufferController),
+
+      tap(() => {
+        numItemsInBuffer--;
+        if (numItemsInBuffer <= size) {
+          bufferController.resume();
+        }
+      }),
+    );
+  };
+}
+
+function controllableBuffer<T>(controller: BufferController): Transform<T, T> {
+  return input => {
+    let bufferedItems: T[] = [];
+
+    let inputEnded = false;
+    let error: any = undefined;
+
+    let notifyInputActivity = () => {};
+
+    (async () => {
+      try {
+        await controller.whenNotPaused();
+        for await (const item of input) {
+          bufferedItems.push(item);
+          notifyInputActivity();
+          await controller.whenNotPaused();
+        }
+      } catch (e) {
+        error = e;
+      } finally {
+        inputEnded = true;
+        notifyInputActivity();
+      }
+    })();
+
+    return (async function* () {
+      while (!error && !(inputEnded && bufferedItems.length === 0)) {
+        if (bufferedItems.length === 0) {
+          await new Promise<void>(resolve => {
+            notifyInputActivity = resolve;
+          });
+        }
+
+        while (bufferedItems.length > 0 && !error) {
+          yield bufferedItems.shift()!;
+        }
+      }
+
+      if (error) {
+        throw error;
+      }
+    })();
+  }
+}
+
+class BufferController {
+  private paused = false;
+  private emitter = new EventEmitter;
+
+  pause() {
+    this.paused = true;
+    return this;
+  }
+
+  resume(): this {
+    if (this.paused) {
+      this.paused = false;
+      this.emitter.emit('resumed'); 
+    }
+    return this;
+  }
+
+  async whenNotPaused(): Promise<void> {
+    if (this.paused) {
+      await new Promise<void>(resolve => this.emitter.once('resumed', resolve));
+    }
+  }
 }
