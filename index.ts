@@ -421,7 +421,7 @@ async function* iterateReadLine(rl: readline.ReadLine): AsyncIterable<string> {
 }
 
 // node 8 compat. Treats EPIPE as a success.
-const writeTo = (destination: NodeJS.WritableStream) => (source: AsyncIterable<string>): Promise<void> => {
+export const writeTo = (destination: NodeJS.WritableStream) => (source: AsyncIterable<string>): Promise<void> => {
   let error: any = undefined;
   const captureError = (e: any) => error = e;
   destination.once('error', captureError);
