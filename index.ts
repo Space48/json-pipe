@@ -486,7 +486,7 @@ export const writeTo = (destination: NodeJS.WritableStream) => (source: AsyncIte
  */
 export function transformJson(transform: Transform): Promise<void> {
   return pipe(
-    readLinesFrom(process.stdin),
+    readJsonLinesFrom(process.stdin),
     transform,
     writeJsonLinesTo(process.stdout),
   );
