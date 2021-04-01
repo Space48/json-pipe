@@ -4,7 +4,7 @@
     "esModuleInterop": true,
     "strict": true,
     "outDir": "lib",
-    "removeComments": true,
+    "removeComments": false,
     "target": "es2017",
     "sourceMap": true,
     "lib": ["ES2017", "ES2018.AsyncIterable"],
