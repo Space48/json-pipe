@@ -250,12 +250,10 @@ export function reduce<T>(callbackfn: (previousValue: any, currentValue: T) => a
 }
 
 export function tap<T>(observer: (element: T) => Promise<any>|any): Transform<T, T> {
-  return async function* (input) {
-    for await (const element of input) {
-      await observer(element);
-      yield element;
-    }
-  };
+  return map(async el => {
+    await observer(el);
+    return el;
+  });
 }
 
 export function onEnd<T>(observer: () => Promise<any>|any): Transform<T, T> {
@@ -276,13 +274,7 @@ export function flatten<T>(): Transform<Iterable<T> | AsyncIterable<T>, T> {
 }
 
 export function filter<T>(predicate: (element: T) => any): Transform<T, T> {
-  return async function* (input) {
-    for await (const element of input) {
-      if (predicate(element)) {
-        yield element;
-      }
-    }
-  };
+  return flatMap(el => predicate(el) ? [el] : []);
 }
 
 export function distinct<T>(): Transform<T, T>;
@@ -305,49 +297,32 @@ export function distinct<T>(compare: ((element1: T, element2: T) => boolean) = O
   };
 }
 
-export function group<T, K>(getKeyFn: (element: T) => K): Transform<T, T[]> {
+export function groupWhile<T>(predicate: (element: T, group: readonly T[]) => boolean): Transform<T, T[]> {
   return async function* (input) {
-    let currentKey: K|undefined = undefined;
-    let buffer: T[] = [];
+    let currentGroup: T[] = [];
     
     for await (const element of input) {
-      const key = getKeyFn(element);
-      if (key === currentKey) {
-        buffer.push(element);
+      if (currentGroup.length === 0 || predicate(element, currentGroup)) {
+        currentGroup.push(element);
       } else {
-        currentKey = key;
-        if (buffer.length) {
-          yield buffer;
-        }
-        buffer = [element];
+        yield currentGroup;
+        currentGroup = [element];
       }
     }
 
-    if (buffer.length) {
-      yield buffer;
-      currentKey = undefined;
-      buffer = [];
+    if (currentGroup.length) {
+      yield currentGroup;
+      currentGroup = [];
     }
   };
 }
 
-export function batch<T>(size: number): Transform<T, T[]> {
-  return async function* (input) {
-    let buffer: T[] = [];
-    
-    for await (const element of input) {
-      buffer.push(element);
-      if (buffer.length === size) {
-        yield buffer;
-        buffer = [];
-      }
-    }
+export function groupBy<T, K>(getKeyFn: (element: T) => K): Transform<T, T[]> {
+  return groupWhile((el, [groupHead]) => getKeyFn(el) === getKeyFn(groupHead));
+}
 
-    if (buffer.length) {
-      yield buffer;
-      buffer = [];
-    }
-  };
+export function batch<T>(size: number): Transform<T, T[]> {
+  return groupWhile((_, group) => group.length < size);
 }
 
 export function take<T>(n: number): Transform<T, T> {
@@ -477,6 +452,13 @@ export const writeTo = (destination: NodeJS.WritableStream) => (source: AsyncIte
       destination.removeListener('error', captureError);
     }
   });
+}
+
+/**
+ * @deprecated Use groupBy instead
+ */
+ export function group<T, K>(getKeyFn: (element: T) => K): Transform<T, T[]> {
+  return groupBy(getKeyFn);
 }
 
 /** 
