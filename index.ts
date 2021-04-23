@@ -355,6 +355,14 @@ export function takeWhile<T>(predicate: (element: T) => any): Transform<T, T> {
   };
 }
 
+export function forEach<T>(action: (element: T) => void): Fn<AsyncIterable<T>, Promise<void>> {
+  return async input => {
+    for await (const element of input) {
+      action(element);
+    }
+  };
+}
+
 export async function * range(from: number, to: number, step: number = 1): AsyncIterable<number> {
   for (let n = from; n <= to; n += step) {
     yield n;
