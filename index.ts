@@ -522,7 +522,7 @@ function buffer<T>(size: number): Transform<T, T> {
 
 function controllableBuffer<T>(controller: BufferController): Transform<T, T> {
   return input => {
-    let bufferedItems: T[] = [];
+    const bufferedItems: T[] = [];
 
     let inputEnded = false;
     let error: any = undefined;
