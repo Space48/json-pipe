@@ -539,7 +539,7 @@ function controllableBuffer<T>(controller: BufferController) {
   return (...inputs: AsyncIterable<T>[]): AsyncIterable<T> => {
     const bufferedItems: T[] = [];
 
-    let inputEnded = false;
+    let numInputsEnded = 0;
     let error: any = undefined;
 
     let notifyInputActivity = () => {};
@@ -556,14 +556,14 @@ function controllableBuffer<T>(controller: BufferController) {
         } catch (e) {
           error = e;
         } finally {
-          inputEnded = true;
+          numInputsEnded++;
           notifyInputActivity();
         }
       })();
     });
 
     return (async function* () {
-      while (!error && !(inputEnded && bufferedItems.length === 0)) {
+      while (!error && !(numInputsEnded === inputs.length && bufferedItems.length === 0)) {
         if (bufferedItems.length === 0) {
           await new Promise<void>(resolve => {
             notifyInputActivity = resolve;
