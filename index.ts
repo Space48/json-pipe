@@ -192,6 +192,21 @@ export function flatMapAsync<T, R>(mapperOrOptions: AsyncFlatMapper<T, R>|FlatMa
   };
 }
 
+/**
+ * Merge iteratables without preserving order
+ */
+export async function* mergeUnordered<T>(...inputs: AsyncIterable<T>[]) {
+  if (inputs.length === 0) {
+    return;
+  }
+  
+  if (inputs.length === 1) {
+    yield* inputs[0];
+  }
+  
+  yield* buffer<T>(inputs.length)(...inputs);
+}
+
 export function collectArray<T>(): Fn<AsyncIterable<T>, Promise<T[]>> {
   return reduce(
     (result, element) => {
@@ -493,22 +508,22 @@ export function streamJson<T>(source: Source<T>): Promise<void> {
   return writeTo(process.stdout)(outputLines);
 }
 
-function buffer<T>(size: number): Transform<T, T> {
-  return input => {
+function buffer<T>(size: number) {
+  return (...inputs: AsyncIterable<T>[]) => {
     let numItemsInBuffer = 0;
     let bufferController = new BufferController();
 
     return pipe(
-      input,
+      inputs.map(
+        tap(() => {
+          numItemsInBuffer++;
+          if (numItemsInBuffer >= size) {
+            bufferController.pause();
+          }
+        })
+      ),
 
-      tap(() => {
-        numItemsInBuffer++;
-        if (numItemsInBuffer >= size) {
-          bufferController.pause();
-        }
-      }),
-
-      controllableBuffer(bufferController),
+      preparedInputs => controllableBuffer<T>(bufferController)(...preparedInputs),
 
       tap(() => {
         numItemsInBuffer--;
@@ -520,8 +535,8 @@ function buffer<T>(size: number): Transform<T, T> {
   };
 }
 
-function controllableBuffer<T>(controller: BufferController): Transform<T, T> {
-  return input => {
+function controllableBuffer<T>(controller: BufferController) {
+  return (...inputs: AsyncIterable<T>[]): AsyncIterable<T> => {
     const bufferedItems: T[] = [];
 
     let inputEnded = false;
@@ -529,21 +544,23 @@ function controllableBuffer<T>(controller: BufferController): Transform<T, T> {
 
     let notifyInputActivity = () => {};
 
-    (async () => {
-      try {
-        await controller.whenNotPaused();
-        for await (const item of input) {
-          bufferedItems.push(item);
-          notifyInputActivity();
+    inputs.forEach(input => {
+      (async () => {
+        try {
           await controller.whenNotPaused();
+          for await (const item of input) {
+            bufferedItems.push(item);
+            notifyInputActivity();
+            await controller.whenNotPaused();
+          }
+        } catch (e) {
+          error = e;
+        } finally {
+          inputEnded = true;
+          notifyInputActivity();
         }
-      } catch (e) {
-        error = e;
-      } finally {
-        inputEnded = true;
-        notifyInputActivity();
-      }
-    })();
+      })();
+    });
 
     return (async function* () {
       while (!error && !(inputEnded && bufferedItems.length === 0)) {
