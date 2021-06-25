@@ -547,11 +547,15 @@ function controllableBuffer<T>(controller: BufferController) {
     inputs.forEach(input => {
       (async () => {
         try {
-          await controller.whenNotPaused();
+          if (await controller.isTerminated()) {
+            return;
+          }
           for await (const item of input) {
             bufferedItems.push(item);
             notifyInputActivity();
-            await controller.whenNotPaused();
+            if (await controller.isTerminated()) {
+              return;
+            }
           }
         } catch (e) {
           error = e;
@@ -575,6 +579,8 @@ function controllableBuffer<T>(controller: BufferController) {
         }
       }
 
+      controller.terminate();
+
       if (error) {
         throw error;
       }
@@ -585,8 +591,9 @@ function controllableBuffer<T>(controller: BufferController) {
 class BufferController {
   private paused = false;
   private emitter = new EventEmitter;
+  private terminated = false;
 
-  pause() {
+  pause(): this {
     this.paused = true;
     return this;
   }
@@ -599,9 +606,16 @@ class BufferController {
     return this;
   }
 
-  async whenNotPaused(): Promise<void> {
+  terminate(): this {
+    this.terminated = true;
+    this.resume();
+    return this;
+  }
+
+  async isTerminated(): Promise<boolean> {
     if (this.paused) {
       await new Promise<void>(resolve => this.emitter.once('resumed', resolve));
     }
+    return this.terminated;
   }
 }
