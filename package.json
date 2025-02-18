@@ -20,14 +20,11 @@
     "url": "git+https://github.com/Space48/json-pipe.git"
   },
   "author": "Josh Di Fabio <joshdifabio@gmail.com>",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/Space48/json-pipe/issues"
   },
   "homepage": "https://github.com/Space48/json-pipe#readme",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com/"
-  },
   "devDependencies": {
     "@types/node": "^8.10.61",
     "rimraf": "^3.0.2",
